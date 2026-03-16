@@ -1,109 +1,147 @@
-# Visibility Graph Analysis Project
+# Series — Visibility Graph Analysis for Financial Time Series
 
 ## Project Overview
 
-This project implements **Visibility Graph (VG) analysis** for time series data, specifically applied to Apple (AAPL) stock closing prices from 2020-2025. The implementation is based on the research paper:
+This project implements **Visibility Graph (VG) analysis** for financial time series data, specifically applied to Apple (AAPL) stock prices from 2020-2025. The Visibility Graph method transforms time series data into complex networks, enabling the analysis of:
 
-> Xiong, H., Shang, P., Xia, J., Wang, Y. (2018). "Time irreversibility and intrinsics revealing of series with complex network approach", *Physica A*.
+- **Temporal irreversibility** — Detecting asymmetry between past and future through Kullback-Leibler Divergence (KLD)
+- **Fractal properties** — Estimating Hurst exponent via power-law degree distribution fitting
+- **Market predictability** — Using VG features for price direction classification
 
-### Purpose
+## Technologies & Dependencies
 
-The project converts time series data into complex networks (visibility graphs) to analyze:
-- **Time Irreversibility**: Whether the series behaves differently forward vs backward in time
-- **Fractal Properties**: Long-range correlations and self-similarity via power-law analysis
-- **Hurst Exponent**: Persistence/anti-persistence behavior in financial data
-
-### Key Algorithms
-
-| Algorithm | Complexity | Description |
-|-----------|------------|-------------|
-| Visibility Graph Construction | O(N²) | Optimized algorithm using slope-based visibility checks |
-| Brute-force VG Verification | O(N³) | Reference implementation for validation |
-| Kullback-Leibler Divergence | O(N) | Measures asymmetry between in/out degree distributions |
-| Power-law Fitting | O(N) | Log-log regression for fractal analysis |
-
-## Technologies
-
-- **Language**: Python 3.x
-- **Core Libraries**:
-  - `numpy` - Numerical computations
-  - `pandas` - Data handling
-  - `matplotlib` - Visualization
-  - `scipy.stats` - Statistical analysis (linear regression)
-- **Optional**:
-  - `yfinance` - Yahoo Finance API for real stock data
-
-## Installation
-
-```bash
-# Required dependencies
-pip install numpy pandas matplotlib scipy
-
-# Optional: for real stock data
-pip install yfinance
-```
-
-## Usage
-
-### Running the Analysis
-
-```bash
-python visibility_graph_analysis.py
-```
-
-The script will:
-1. Download AAPL data (or generate synthetic data if yfinance unavailable)
-2. Build the visibility graph
-3. Calculate degree distributions (in/out/total)
-4. Compute KLD for time irreversibility analysis
-5. Fit power-law and estimate Hurst exponent
-6. Generate visualization saved as `apple_visibility_graph.png`
-
-### Customization
-
-Modify the parameters in the `__main__` section:
-
-```python
-# Change stock ticker or date range
-precios, fechas = descargar_datos("AAPL", "2020-01-01", "2025-01-01")
-
-# Or use custom time series
-serie_personalizada = tu_array_de_datos
-```
-
-## Output Metrics
-
-### Irreversibility Analysis
-- **KLD ≈ 0**: Time-reversible series (symmetric dynamics)
-- **KLD >> 0**: Time-irreversible series (asymmetric up/down movements)
-
-### Fractal Analysis
-- **H > 0.5**: Persistent series (trends tend to continue)
-- **H < 0.5**: Anti-persistent series (trends tend to reverse)
-- **H ≈ 0.5**: Random walk / no long-range correlation
+| Library | Purpose |
+|---------|---------|
+| `numpy` | Numerical computations |
+| `pandas` | Data manipulation |
+| `matplotlib` | Visualization |
+| `numba` | JIT compilation for performance-critical VG algorithms |
+| `scikit-learn` | Gradient Boosting classifier for prediction |
+| `yfinance` | Stock data download |
+| `scipy` | Statistical analysis (power-law fitting) |
 
 ## Project Structure
 
 ```
 series/
-├── visibility_graph_analysis.py   # Main analysis script
-├── QWEN.md                        # Project documentation
-├── apple_visibility_graph.png     # Generated visualization (after running)
-└── .git/                          # Git repository
+├── v1.py                        # Full VG-based forecasting system (VGFS)
+├── visibility_graph_analysis.py # Detailed VG analysis with validation
+├── *.png                        # Generated analysis visualizations
+└── QWEN.md                      # This documentation
 ```
 
-## Key Functions
+## Key Files
 
-| Function | Description |
-|----------|-------------|
-| `descargar_datos()` | Downloads stock data from Yahoo Finance |
-| `construir_visibility_graph()` | Builds VG with optimized O(N²) algorithm |
-| `vg_fuerza_bruta()` | Brute-force VG for verification |
-| `distribucion_grado()` | Computes degree distribution P(k) |
-| `calcular_kld()` | Calculates Kullback-Leibler divergence |
-| `ajustar_ley_potencia()` | Power-law fit and Hurst estimation |
+### `v1.py` — Visibility Graph Forecasting System (VGFS)
 
-## References
+A complete ML pipeline that:
+- Downloads AAPL stock data via yfinance
+- Extracts 19 features: 12 VG-based + 7 traditional technical indicators
+- Trains Gradient Boosting classifiers on different feature subsets
+- Generates 5 visualization dashboards
 
-- **Paper**: Xiong et al. (2018), Physica A - Time irreversibility analysis via visibility graphs
-- **Visibility Graph**: Lacasa et al. (2008) - Original VG formulation for time series
+**Key functions:**
+- `vg(s)` — Computes in-degree, out-degree, and total degree sequences
+- `kld(ki, ko)` — Kullback-Leibler divergence between in/out distributions
+- `hs(kt)` — Hurst exponent estimator from degree distribution
+- `fvg(s)` — 12-dimensional VG feature vector
+- `ftr(s)` — 7-dimensional traditional technical features
+- `bds(p, v, h)` — Builds dataset with sliding windows
+
+### `visibility_graph_analysis.py` — Analytical Validation
+
+Provides detailed analysis with:
+- Brute-force VG verification for correctness
+- Shuffle tests for irreversibility significance
+- Power-law exponent estimation with R² goodness-of-fit
+- Comprehensive 6-panel visualization
+
+## Building and Running
+
+### Prerequisites
+
+```bash
+pip install numpy pandas matplotlib numba scikit-learn yfinance scipy
+```
+
+### Run Full Forecasting System
+
+```bash
+python v1.py
+```
+
+**Outputs:**
+- `AAPL_dash.png` — Dashboard with price, cumulative returns, Hurst exponent, confusion matrix
+- `AAPL_fvr.png` — Feature comparison: bar chart, ROC curve, P-R curve, returns
+- `AAPL_vg.png` — VG properties: degree distribution, degree sequence, scatter plot
+- `AAPL_rol.png` — Rolling analysis: price, probabilities, returns, cumulative accuracy
+- `AAPL_feat.png` — Feature analysis: correlation bars, correlation heatmap
+
+### Run Detailed Analysis
+
+```bash
+python visibility_graph_analysis.py
+```
+
+**Output:**
+- `apple_visibility_graph.png` — 6-panel comprehensive analysis figure
+
+## Algorithm Details
+
+### Visibility Graph Construction
+
+Two points `(i, s[i])` and `(j, s[j])` are connected if all intermediate points lie below the visibility line:
+
+```
+s[k] < s[i] + (s[j] - s[i]) × (k - i) / (j - i)  for all k ∈ (i, j)
+```
+
+### Feature Extraction
+
+**VG Features (12):**
+1. Last in-degree
+2. Normalized last in-degree
+3. KLD (irreversibility)
+4. Hurst exponent
+5. Mean degree
+6. Skewness of degree distribution
+7. Growth ratio (recent vs early)
+8. Slope of recent in-degrees
+9. Maximum degree
+10. Coefficient of variation
+11. Recent out-in difference
+12. Entropy of degree distribution
+
+**Technical Features (7):**
+1. Total return
+2. Volatility
+3. Return skewness
+4. Return kurtosis
+5. Drawdown ratio
+6. Relative position in range
+7. Recent momentum
+
+## Development Conventions
+
+- **Code style:** Compact, performance-oriented (minified imports, single-letter variables in numba functions)
+- **JIT compilation:** All performance-critical loops use `@njit` with `fastmath` and `prange` for parallelization
+- **Visualization:** Dark theme (`dark_background` style) for all plots
+- **Random state:** Fixed at 42 for reproducibility
+
+## Key Metrics
+
+| Metric | Interpretation |
+|--------|----------------|
+| KLD > 3× shuffle | Strong temporal irreversibility |
+| H > 0.5 | Persistent (trend-following) behavior |
+| H < 0.5 | Anti-persistent (mean-reverting) behavior |
+| H ≈ 0.5 | Random walk |
+
+## Output Interpretation
+
+The forecasting system compares three models:
+- **VG** — Visibility Graph features only
+- **TR** — Traditional technical indicators only
+- **ALL** — Combined feature set
+
+Best model is selected by accuracy and used for trading signal generation, compared against Buy & Hold baseline.
