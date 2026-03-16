@@ -1,4 +1,4 @@
-import numpy as np,pandas as pd,yfinance as yf,matplotlib.pyplot as plt;from numba import njit,prange;from sklearn.ensemble import GradientBoostingClassifier as GBC;from sklearn.preprocessing import StandardScaler as SS;from sklearn.metrics import accuracy_score as acc,confusion_matrix as cm,roc_curve as roc,precision_recall_curve as prc;import warnings;warnings.filterwarnings('ignore');import os,base64,io
+import numpy as np,pandas as pd,yfinance as yf,matplotlib.pyplot as plt;from numba import njit,prange;from sklearn.preprocessing import StandardScaler as SS;from sklearn.linear_model import LogisticRegression as LR,Ridge as RD;from sklearn.metrics import accuracy_score as AC,r2_score as RS;from catboost import CatBoostClassifier as CBC,CatBoostRegressor as CBR;from lightgbm import LGBMClassifier as LC,LGBMRegressor as LGR;from xgboost import XGBClassifier as XC,XGBRegressor as XR;import warnings;warnings.filterwarnings('ignore')
 yf.enable_debug_mode()
 @njit(fastmath=True)
 def vg(s):
@@ -17,7 +17,7 @@ def kld(ki,ko):
 @njit(fastmath=True)
 def hs(kt):
  c=np.zeros(int(np.max(kt))+1)
- for k in kt:c[int(k)]+=1
+ for v in kt:c[int(v)]+=1
  k=np.nonzero(c)[0];p=c[k]/len(kt);m=(k>=2)&(p>0)
  if np.sum(m)<3:return 0.5
  x,y=np.log(k[m].astype(np.float64)),np.log(p[m]);n=len(x);sx=np.sum(x)
@@ -34,58 +34,53 @@ def ftr(s):
  return np.array([s[-1]/s[0]-1,np.std(r),np.mean((r-mr)**3)/(v2**1.5) if v2>0 else 0.,np.mean((r-mr)**4)/(v2**2) if v2>0 else 0.,100. if W<15 or np.mean(np.maximum(-d,0.))==0 else 100.-100./(1.+np.mean(np.maximum(d,0.))/np.mean(np.maximum(-d,0.))),(s[-1]-np.min(s))/max(np.max(s)-np.min(s),1e-8),s[-1]/(np.mean(s[-20:]) if W>=20 else s[-1])-1])
 @njit(parallel=True,fastmath=True)
 def bds(p,v=40,h=5):
- M=len(p)-v-h;X,D,R=np.zeros((M,19)),np.zeros(M),np.zeros(M)
+ M=len(p)-v-h;X,D,R,P=np.zeros((M,19)),np.zeros(M),np.zeros(M),np.zeros(M)
  for i in prange(M):
   fv=fvg(p[i:i+v+1]);tr=ftr(p[i:i+v+1])
   for j in range(12):X[i,j]=fv[j]
   for j in range(7):X[i,12+j]=tr[j]
-  R[i]=(p[i+v+h]-p[i+v])/p[i+v];D[i]=1. if R[i]>0 else 0.
- return X,D,R
-class VGFS:
+  R[i]=(p[i+v+h]-p[i+v])/p[i+v];D[i]=1. if R[i]>0 else 0.;P[i]=p[i+v+h]
+ return X,D,R,P
+class VGSS:
  def __init__(S,tk="AAPL",v=40,h=5,rt=0.7):
   d=yf.download(tk,start="2020-01-01",end="2025-01-01",progress=False)
-  if isinstance(d.columns, pd.MultiIndex):
-      S.p,S.tk=np.ascontiguousarray(d[('Close',tk)].values.ravel().astype(np.float64)),tk
-  else:
-      S.p,S.tk=np.ascontiguousarray(d['Close'].values.ravel().astype(np.float64)),tk
-  S.X,S.y,S.R=bds(S.p,v,h)
-  S.tr=int(len(S.y)*rt)
-  S.rs,S.es,S.imgs={},{},{}
+  if isinstance(d.columns,pd.MultiIndex):S.p=np.ascontiguousarray(d[('Close',tk)].values.ravel().astype(np.float64))
+  else:S.p=np.ascontiguousarray(d['Close'].values.ravel().astype(np.float64))
+  S.tk=tk;S.X,S.y,S.R,S.P=bds(S.p,v,h);S.tr=int(len(S.y)*rt)
  def run(S):
-  Xs,tr=SS().fit_transform(S.X),S.tr
-  for n,idx in [('VG',list(range(12))),('TR',list(range(12,19))),('ALL',list(range(19)))]:
-   m=GBC(n_estimators=200,max_depth=4,learning_rate=0.05,subsample=0.8,random_state=42).fit(Xs[:tr,idx],S.y[:tr]);yp,yprob=m.predict(Xs[tr:,idx]),m.predict_proba(Xs[tr:,idx])[:,1];S.rs[n]={'yp':yp,'yprob':yprob,'acc':acc(S.y[tr:],yp),'cm':cm(S.y[tr:],yp)}
-  bn=max(S.rs,key=lambda k:S.rs[k]['acc']);b=S.rs[bn];R=S.R[tr:];C=lambda y:np.cumprod(1+y)-1
-  for n,r in S.rs.items():S.es[n]=C(np.where(r['yp']==1,R,0))
-  S.es['B&H']=C(R);plt.style.use('dark_background');F=plt.figure;S.p1(b);S.p2(b,R);S.p3();S.p4(b,R);S.p5();S.gen_html(b,R,bn);print(f"✅ Mejor: {bn} (Acc: {b['acc']:.2%})")
- def img2b64(S,f):buf=io.BytesIO();f.savefig(buf,format='png',bbox_inches='tight');buf.seek(0);return base64.b64encode(buf.read()).decode('utf-8')
- def p1(S,b):f=plt.figure(figsize=(15,10));ax=f.subplots(2,2);ax[0,0].plot(S.p);ax[0,0].axvline(S.tr,c='y');ax[0,0].set_title('Precio AAPL');ax[0,1].plot(S.es['VG'],label='VG');ax[0,1].plot(S.es['TR'],label='TR');ax[0,1].plot(S.es['ALL'],label='ALL');ax[0,1].plot(S.es['B&H'],label='B&H',ls='--');ax[0,1].legend();ax[0,1].set_title('Retornos Acumulados');ax[1,0].plot(S.X[:,3]);ax[1,0].set_title('Exponente Hurst');ax[1,1].imshow(b['cm'],cmap='Blues');ax[1,1].set_title('Matriz Confusión');S.imgs['p1']=S.img2b64(f);plt.close(f)
- def p2(S,b,R):f=plt.figure(figsize=(15,10));ax=f.subplots(2,2);y=S.y[S.tr:];fpr,tpr,_=roc(y,b['yprob']);ax[0,0].bar(range(len(R)),R,color=['g' if p==a else 'r' for p,a in zip(b['yp'],y)]);ax[0,0].set_title('Retornos por Predicción');ax[0,1].plot(fpr,tpr);ax[0,1].set_title('Curva ROC');pr,rc,_=prc(y,b['yprob']);ax[1,0].plot(rc,pr);ax[1,0].set_title('Curva P-R');ax[1,1].plot(S.es['ALL'],c='g',label='VG+TR');ax[1,1].plot(S.es['B&H'],c='w',ls='--',label='B&H');ax[1,1].legend();ax[1,1].set_title('Comparativa Estrategias');S.imgs['p2']=S.img2b64(f);plt.close(f)
- def p3(S):f=plt.figure(figsize=(15,5));ax=f.subplots(1,3);_,_,kt=vg(S.p);u,c=np.unique(kt.astype(np.int32),return_counts=True);ax[0].loglog(u,c/len(S.p),'.');ax[0].set_title('Distribución de Grados');ax[1].plot(kt);ax[1].set_title('Secuencia de Grados');ax[2].scatter(S.X[:,3],S.R,c=S.y,alpha=0.5);ax[2].set_title('Hurst vs Retornos');S.imgs['p3']=S.img2b64(f);plt.close(f)
- def p4(S,b,R):f=plt.figure(figsize=(15,10));ax=f.subplots(4,1);n=min(120,len(R));idx=slice(-n,None);y,yp=S.y[S.tr:][idx],b['yp'][idx];ax[0].plot(S.p[-n:]);ax[0].set_title('Precio (Últimos 120)');ax[1].bar(range(n),b['yprob'][idx]);ax[1].set_title('Probabilidad de Subida');ax[2].bar(range(n),R[idx]);ax[2].set_title('Retornos');ax[3].plot(np.cumsum(yp==y)/(np.arange(n)+1)*100);ax[3].set_title('Precisión Acumulada (%)');S.imgs['p4']=S.img2b64(f);plt.close(f)
- def p5(S):f=plt.figure(figsize=(10,5));ax=f.subplots(1,2);ax[0].barh(range(19),np.corrcoef(S.X.T,S.R)[-1,:-1]);ax[0].set_title('Correlación con Retorno');ax[1].imshow(np.corrcoef(S.X.T),cmap='RdBu_r');ax[1].set_title('Heatmap Correlaciones');S.imgs['p5']=S.img2b64(f);plt.close(f)
- def gen_html(S,b,R,bn):
-  pngs=[f for f in os.listdir('.') if f.endswith('.png')]
-  for p in pngs:os.remove(p);print(f"🗑️ Eliminado: {p}")
-  feat_names=['In-degree','Norm In-degree','KLD','Hurst','Mean Degree','Skewness','Growth Ratio','Slope','Max Degree','CV','Out-In Diff','Entropy','Total Return','Volatility','Skew','Kurtosis','Drawdown','Rel Position','Momentum']
-  html=f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reporte VGFS - {S.tk}</title><style>body{{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;padding:20px}}h1,h2{{color:#00d9ff}}table{{border-collapse:collapse;width:100%;margin:20px 0;background:#16213e}}th,td{{border:1px solid #444;padding:10px;text-align:center}}th{{background:#0f3460;color:#00d9ff}}.pos{{color:#4caf50}}.neg{{color:#f44336}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(500px,1fr));gap:20px}}.card{{background:#16213e;padding:15px;border-radius:8px}}img{{width:100%;border-radius:8px}}</style></head><body>
-<h1>📊 Reporte Visibility Graph Forecasting System - {S.tk}</h1>
-<h2>📈 Resumen de Modelos</h2>
-<table><tr><th>Modelo</th><th>Accuracy</th><th>Verdaderos Positivos</th><th>Falsos Positivos</th><th>Falsos Negativos</th><th>Verdaderos Negativos</th></tr>"""
-  for n in ['VG','TR','ALL']:
-   r=S.rs[n];tn,fp,fn,tp=r['cm'].ravel();html+=f"<tr><td>{n}</td><td>{r['acc']:.2%}</td><td class='pos'>{tp}</td><td class='neg'>{fp}</td><td class='neg'>{fn}</td><td class='pos'>{tn}</td></tr>"
-  html+=f"</table><p><strong>✅ Mejor Modelo:</strong> {bn} con accuracy {b['acc']:.2%}</p>"
-  html+="<h2>📉 Estrategias de Retorno</h2><table><tr><th>Estrategia</th><th>Retorno Final</th><th>Máximo</th><th>Mínimo</th></tr>"
-  for n,e in S.es.items():ret=e[-1];mx,mn=e.max(),e.min();c='#4caf50' if ret>=0 else '#f44336';html+=f"<tr><td>{n}</td><td style='color:{c}'>{ret:.2%}</td><td style='color:#4caf50'>{mx:.2%}</td><td style='color:#f44336'>{mn:.2%}</td></tr>"
-  html+=f"</table><h2>📊 Dashboard Principal</h2><div class='grid'><div class='card'><img src='data:image/png;base64,{S.imgs['p1']}'></div><div class='card'><img src='data:image/png;base64,{S.imgs['p2']}'></div></div>"
-  html+=f"<h2>🔍 Análisis VG</h2><div class='grid'><div class='card'><img src='data:image/png;base64,{S.imgs['p3']}'></div><div class='card'><img src='data:image/png;base64,{S.imgs['p4']}'></div></div>"
-  html+=f"<h2>📐 Análisis de Features</h2><div class='grid'><div class='card'><img src='data:image/png;base64,{S.imgs['p5']}'></div></div>"
-  html+="<h2>📋 Features VG (Top 12)</h2><table><tr><th>Feature</th><th>Valor Actual</th><th>Media Histórica</th></tr>"
-  vnames=['In-degree','Norm In-degree','KLD (Irreversibilidad)','Hurst','Mean Degree','Skewness','Growth Ratio','Slope','Max Degree','CV','Out-In Diff','Entropy']
-  for i,vn in enumerate(vnames):cur=S.X[-1,i];avg=np.mean(S.X[:,i]);html+=f"<tr><td>{vn}</td><td>{cur:.4f}</td><td>{avg:.4f}</td></tr>"
-  html+=f"</table><h2>📋 Features Técnicos (Top 7)</h2><table><tr><th>Feature</th><th>Valor Actual</th><th>Media Histórica</th></tr>"
-  tnames=['Retorno Total','Volatilidad','Skew','Kurtosis','Drawdown Ratio','Posición Relativa','Momentum']
-  for i,tn in enumerate(tnames):cur=S.X[-1,12+i];avg=np.mean(S.X[:,12+i]);html+=f"<tr><td>{tn}</td><td>{cur:.4f}</td><td>{avg:.4f}</td></tr>"
-  html+=f"</table><p style='text-align:center;color:#666;margin-top:40px'>Generado por VGFS | Visibility Graph Forecasting System</p></body></html>"""
-  S.imgs={};fn=f"{S.tk}_reporte.html";open(fn,'w',encoding='utf-8').write(html);print(f"✅ HTML generado: {fn}")
-if __name__=="__main__":VGFS().run()
+  Xs=SS().fit_transform(S.X);t,nt,RE=S.tr,len(S.y)-S.tr,50
+  bc=[CBC(verbose=0,iterations=200,random_seed=42),LC(n_estimators=200,verbose=-1,random_state=42),XC(n_estimators=200,verbosity=0,eval_metric='logloss',random_state=42)]
+  br=[CBR(verbose=0,iterations=200,random_seed=42),LGR(n_estimators=200,verbose=-1,random_state=42),XR(n_estimators=200,verbosity=0,random_state=42)]
+  t2=int(t*.7);print(f"⏳ Fase 1/3: Meta-features iniciales ({t2}→{t-t2} val)...")
+  [m.fit(Xs[:t2],S.y[:t2]) for m in bc];[m.fit(Xs[:t2],S.P[:t2]) for m in br]
+  Mc0=np.column_stack([m.predict_proba(Xs[t2:t])[:,1] for m in bc])
+  Mr0=np.column_stack([m.predict(Xs[t2:t]) for m in br])
+  mc,mr=LR(max_iter=2000),RD();mc.fit(Mc0,S.y[t2:t]);mr.fit(Mr0,S.P[t2:t])
+  print(f"⏳ Fase 2/3: Base completo ({t} muestras)...")
+  [m.fit(Xs[:t],S.y[:t]) for m in bc];[m.fit(Xs[:t],S.P[:t]) for m in br]
+  bs0=t-t2;bsz=bs0+nt;Mcb,Mrb,ycb,prb=np.zeros((bsz,3)),np.zeros((bsz,3)),np.zeros(bsz),np.zeros(bsz)
+  Mcb[:bs0],Mrb[:bs0],ycb[:bs0],prb[:bs0]=Mc0,Mr0,S.y[t2:t],S.P[t2:t];bs=bs0
+  pd_a,pp_a=np.zeros(nt),np.zeros(nt)
+  print(f"⏳ Fase 3/3: Walk-forward adaptivo ({nt} pasos)...")
+  for i in range(nt):
+   xi=Xs[t+i:t+i+1];ci=np.array([m.predict_proba(xi)[:,1][0] for m in bc]);ri=np.array([m.predict(xi)[0] for m in br])
+   pd_a[i]=mc.predict(ci.reshape(1,-1))[0];pp_a[i]=mr.predict(ri.reshape(1,-1))[0]
+   Mcb[bs],Mrb[bs],ycb[bs],prb[bs]=ci,ri,S.y[t+i],S.P[t+i];bs+=1
+   sw=np.exp(np.linspace(-3,0,bs));mc.fit(Mcb[:bs],ycb[:bs],sample_weight=sw);mr.fit(Mrb[:bs],prb[:bs],sample_weight=sw)
+   if(i+1)%RE==0:e=t+i+1;[m.fit(Xs[:e],S.y[:e]) for m in bc];[m.fit(Xs[:e],S.P[:e]) for m in br];print(f"  🔄 Paso {i+1}/{nt} | Acc:{AC(S.y[t:t+i+1],pd_a[:i+1]):.4f} R²:{RS(S.P[t:t+i+1],pp_a[:i+1]):.4f}")
+  ye,pe=S.y[t:],S.P[t:];a,r2=AC(ye,pd_a),RS(pe,pp_a);mn=['CatBoost','LightGBM','XGBoost']
+  print(f"\n{'='*60}\n✅ RESULTADOS\n{'='*60}\n  Dirección Acc: {a:.4f}\n  Precio R²:     {r2:.4f}\n{'='*60}")
+  print(f"  Pesos CLF: {dict(zip(mn,mc.coef_[0].round(4)))}\n  Pesos REG: {dict(zip(mn,mr.coef_.round(4)))}")
+  plt.style.use('default');plt.rcParams.update({'figure.facecolor':'w','axes.facecolor':'w','axes.grid':True,'grid.alpha':.25})
+  fig,(a1,a2)=plt.subplots(2,1,figsize=(16,10),gridspec_kw={'hspace':.4});fig.patch.set_facecolor('w');n=len(ye);ok=(pd_a==ye)
+  a1.plot(pe,c='#1565c0',lw=1.3,label='Real');a1.plot(pp_a,c='#c62828',lw=1.1,label='Predicho',alpha=.8)
+  a1.fill_between(range(n),pe,pp_a,alpha=.08,color='#e65100')
+  a1.set_title(f'{S.tk} Precio Cierre [Test] │ Stacking Adaptivo (CB+LGB+XGB)→Ridge │ R²={r2:.4f}',fontsize=13,fontweight='bold')
+  a1.legend(fontsize=11);a1.set_ylabel('Precio ($)',fontsize=11)
+  a2.fill_between(range(n),-.15,1.15,where=ok,color='#2e7d32',alpha=.1,label='Acierto')
+  a2.fill_between(range(n),-.15,1.15,where=~ok,color='#c62828',alpha=.1,label='Error')
+  a2.step(range(n),ye,c='#1565c0',lw=1.5,where='mid',label='Real');a2.step(range(n),pd_a,c='#c62828',lw=1.1,where='mid',label='Predicho',alpha=.7)
+  a2.set_title(f'{S.tk} Dirección [Test] │ Stacking Adaptivo (CB+LGB+XGB)→LogReg │ Acc={a:.4f}',fontsize=13,fontweight='bold')
+  a2.legend(fontsize=10,ncol=4,loc='upper center');a2.set_ylabel('0=Baja  1=Sube',fontsize=11);a2.set_ylim(-.2,1.2);a2.set_yticks([0,1])
+  plt.xlabel('Muestras Test',fontsize=11);plt.savefig(f'{S.tk}_adaptive.png',dpi=150,bbox_inches='tight',facecolor='w');plt.show()
+if __name__=="__main__":VGSS().run()
