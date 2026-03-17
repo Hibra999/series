@@ -43,10 +43,15 @@ def bds(p,v=40,h=5):
  return X,D,R,P
 class VGSS:
  def __init__(S,tk="AAPL",v=40,h=5,rt=0.7):
-  d=yf.download(tk,start="2020-01-01",end="2025-01-01",progress=False)
-  if isinstance(d.columns,pd.MultiIndex):S.p=np.ascontiguousarray(d[('Close',tk)].values.ravel().astype(np.float64))
-  else:S.p=np.ascontiguousarray(d['Close'].values.ravel().astype(np.float64))
-  S.tk=tk;S.X,S.y,S.R,S.P=bds(S.p,v,h);S.tr=int(len(S.y)*rt)
+  d_train=yf.download(tk,start="2015-01-01",end="2025-12-31",progress=False)
+  d_test=yf.download(tk,start="2026-01-01",progress=False)
+  if isinstance(d_train.columns,pd.MultiIndex):
+   p1=np.ascontiguousarray(d_train[('Close',tk)].values.ravel().astype(np.float64))
+   p2=np.ascontiguousarray(d_test[('Close',tk)].values.ravel().astype(np.float64))
+  else:
+   p1=np.ascontiguousarray(d_train['Close'].values.ravel().astype(np.float64))
+   p2=np.ascontiguousarray(d_test['Close'].values.ravel().astype(np.float64))
+  S.p=np.concatenate([p1,p2]);S.tk=tk;S.X,S.y,S.R,S.P=bds(S.p,v,h);S.tr=int(len(S.y)*rt)
  def run(S):
   Xs=SS().fit_transform(S.X);t,nt,RE=S.tr,len(S.y)-S.tr,50
   bc=[CBC(verbose=0,iterations=200,random_seed=42),LC(n_estimators=200,verbose=-1,random_state=42),XC(n_estimators=200,verbosity=0,eval_metric='logloss',random_state=42)]
